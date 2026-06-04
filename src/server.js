@@ -4,7 +4,7 @@ const http = require("http");
 const { URL } = require("url");
 
 const config = require("./config");
-const { closeMongo, getDb } = require("./lib/mongo");
+const { closeMongo, getDb, pingMongo } = require("./lib/mongo");
 const { queryParams, resolveCorsOrigin, sendJson, sendOptions } = require("./lib/http");
 const {
   getCompanies,
@@ -117,6 +117,9 @@ const server = http.createServer((req, res) => {
 
 server.listen(config.port, config.host, () => {
   console.log(`v1-traffic backend listening on http://${config.host}:${config.port}`);
+  pingMongo().catch(() => {
+    // The connection layer logs details; keep the API process alive for retries.
+  });
 });
 
 async function shutdown() {

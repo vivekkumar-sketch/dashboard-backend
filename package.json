@@ -7,6 +7,8 @@
     "dev": "node src/server.js",
     "start": "node src/server.js",
     "indexes:orders": "node scripts/create-order-indexes.js",
+    "dump:local-to-cloud": "node scripts/dump-local-mongo-to-cloud.js",
+    "dump:local-to-cloud:dry-run": "node scripts/dump-local-mongo-to-cloud.js --dry-run",
     "backup:json": "node scripts/backup-json-to-mongo.js",
     "backup:json:dry-run": "node scripts/backup-json-to-mongo.js --dry-run",
     "backup:inventory": "node scripts/backup-inventory-json-to-mongo.js",
