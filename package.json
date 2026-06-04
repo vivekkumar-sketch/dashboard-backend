@@ -1,0 +1,18 @@
+{
+  "name": "v1-traffic-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node src/server.js",
+    "start": "node src/server.js",
+    "indexes:orders": "node scripts/create-order-indexes.js",
+    "backup:json": "node scripts/backup-json-to-mongo.js",
+    "backup:json:dry-run": "node scripts/backup-json-to-mongo.js --dry-run",
+    "backup:inventory": "node scripts/backup-inventory-json-to-mongo.js",
+    "backup:inventory:dry-run": "node scripts/backup-inventory-json-to-mongo.js --dry-run"
+  },
+  "dependencies": {
+    "mongodb": "^6"
+  }
+}
