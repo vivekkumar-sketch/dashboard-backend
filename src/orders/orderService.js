@@ -39,12 +39,32 @@ function amountExpression(fieldName = "$amount_paid_total") {
   };
 }
 
+function hasAmountExpression(fieldName = "$amount_paid_total") {
+  return {
+    $and: [
+      { $ne: [fieldName, null] },
+      { $ne: [fieldName, ""] },
+    ],
+  };
+}
+
 function companyIdExpression() {
   return {
     $convert: {
       input: {
         $ifNull: ["$company_id", { $arrayElemAt: ["$company_ids", 0] }],
       },
+      to: "string",
+      onError: null,
+      onNull: null,
+    },
+  };
+}
+
+function orderNoExpression() {
+  return {
+    $convert: {
+      input: "$order_no",
       to: "string",
       onError: null,
       onNull: null,
@@ -211,18 +231,7 @@ async function aggregateSummary(collection, match, dateRange) {
         $addFields: {
           company_id_text: companyIdExpression(),
           amount_paid_number: amountExpression(),
-          has_amount: {
-            $cond: [
-              {
-                $and: [
-                  { $ne: ["$amount_paid_total", null] },
-                  { $ne: ["$amount_paid_total", ""] },
-                ],
-              },
-              1,
-              0,
-            ],
-          },
+          has_amount: { $cond: [hasAmountExpression(), 1, 0] },
         },
       },
       {
@@ -283,6 +292,67 @@ async function aggregateSummary(collection, match, dateRange) {
   };
 }
 
+async function aggregateAmountSummary(collection, match) {
+  const [summary = {}] = await collection
+    .aggregate([
+      { $match: match },
+      {
+        $addFields: {
+          amount_paid_number: amountExpression(),
+          company_id_text: companyIdExpression(),
+          order_no_text: orderNoExpression(),
+        },
+      },
+      {
+        $match: {
+          amount_paid_total: { $exists: true, $nin: [null, ""] },
+          order_no_text: { $nin: [null, ""] },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            company_id: "$company_id_text",
+            order_no: "$order_no_text",
+          },
+          orderAmount: { $max: "$amount_paid_number" },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalAmount: { $sum: "$orderAmount" },
+          amountOrders: { $sum: 1 },
+          averageAmountPerOrder: { $avg: "$orderAmount" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          totalAmount: 1,
+          amountOrders: 1,
+          averageAmountPerOrder: 1,
+        },
+      },
+    ])
+    .toArray();
+
+  return {
+    totalAmount: round(summary.totalAmount || 0, 2),
+    amountOrders: summary.amountOrders || 0,
+    averageAmountPerOrder: round(summary.averageAmountPerOrder || 0, 2),
+  };
+}
+
+function mergeAmountSummary(summary, amountSummary) {
+  return {
+    ...summary,
+    totalAmount: amountSummary.totalAmount || 0,
+    amountOrders: amountSummary.amountOrders || 0,
+    averageAmountPerOrder: amountSummary.averageAmountPerOrder || 0,
+  };
+}
+
 async function aggregateDataCoverage(collection) {
   const [coverage = {}] = await collection
     .aggregate([
@@ -322,18 +392,7 @@ async function aggregateTimeSeries(collection, match) {
       {
         $addFields: {
           amount_paid_number: amountExpression(),
-          has_amount: {
-            $cond: [
-              {
-                $and: [
-                  { $ne: ["$amount_paid_total", null] },
-                  { $ne: ["$amount_paid_total", ""] },
-                ],
-              },
-              1,
-              0,
-            ],
-          },
+          has_amount: { $cond: [hasAmountExpression(), 1, 0] },
         },
       },
       {
@@ -368,6 +427,74 @@ async function aggregateTimeSeries(collection, match) {
       { $sort: { date: 1 } },
     ])
     .toArray();
+}
+
+async function aggregateAmountTimeSeries(collection, match) {
+  const rows = await collection
+    .aggregate([
+      { $match: match },
+      {
+        $addFields: {
+          amount_paid_number: amountExpression(),
+          company_id_text: companyIdExpression(),
+          order_no_text: orderNoExpression(),
+        },
+      },
+      {
+        $match: {
+          amount_paid_total: { $exists: true, $nin: [null, ""] },
+          order_no_text: { $nin: [null, ""] },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            date: "$date",
+            company_id: "$company_id_text",
+            order_no: "$order_no_text",
+          },
+          orderAmount: { $max: "$amount_paid_number" },
+        },
+      },
+      {
+        $group: {
+          _id: "$_id.date",
+          totalAmount: { $sum: "$orderAmount" },
+          amountOrders: { $sum: 1 },
+          averageAmountPerOrder: { $avg: "$orderAmount" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          date: "$_id",
+          totalAmount: 1,
+          amountOrders: 1,
+          averageAmountPerOrder: 1,
+        },
+      },
+      { $sort: { date: 1 } },
+    ])
+    .toArray();
+
+  return rows.map((row) => ({
+    ...row,
+    totalAmount: round(row.totalAmount || 0, 2),
+    averageAmountPerOrder: round(row.averageAmountPerOrder || 0, 2),
+  }));
+}
+
+function mergeAmountTimeSeries(timeSeries, amountSeries) {
+  const amountByDate = new Map(amountSeries.map((point) => [point.date, point]));
+  return timeSeries.map((point) => {
+    const amountPoint = amountByDate.get(point.date) || {};
+    return {
+      ...point,
+      totalAmount: amountPoint.totalAmount || 0,
+      amountOrders: amountPoint.amountOrders || 0,
+      averageAmountPerOrder: amountPoint.averageAmountPerOrder || 0,
+    };
+  });
 }
 
 async function aggregateNamedBreakdown(collection, match, fieldExpression, outputName = "name", limit = 12) {
@@ -426,8 +553,58 @@ async function aggregateCompanyBreakdown(collection, match, limit = 12) {
     .toArray();
 }
 
+async function aggregateCompanyAmountBreakdown(collection, match, limit = 12) {
+  return collection
+    .aggregate([
+      { $match: match },
+      {
+        $addFields: {
+          amount_paid_number: amountExpression(),
+          company_id_text: companyIdExpression(),
+          order_no_text: orderNoExpression(),
+        },
+      },
+      {
+        $match: {
+          amount_paid_total: { $exists: true, $nin: [null, ""] },
+          company_id_text: { $nin: [null, ""] },
+          order_no_text: { $nin: [null, ""] },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            company_id: "$company_id_text",
+            order_no: "$order_no_text",
+          },
+          orderAmount: { $max: "$amount_paid_number" },
+        },
+      },
+      {
+        $group: {
+          _id: "$_id.company_id",
+          totalAmount: { $sum: "$orderAmount" },
+          amountOrders: { $sum: 1 },
+          averageAmountPerOrder: { $avg: "$orderAmount" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          company_id: "$_id",
+          totalAmount: 1,
+          amountOrders: 1,
+          averageAmountPerOrder: 1,
+        },
+      },
+      { $sort: { totalAmount: -1, amountOrders: -1, company_id: 1 } },
+      { $limit: limit },
+    ])
+    .toArray();
+}
+
 async function aggregateBreakdowns(collection, match) {
-  const [eventTypes, paymentModes, payloadVersions, companies] = await Promise.all([
+  const [eventTypes, paymentModes, payloadVersions, companies, amountCompanies] = await Promise.all([
     aggregateNamedBreakdown(collection, match, { $ifNull: ["$event_type", "unknown"] }, "event_type", 16),
     aggregateNamedBreakdown(
       collection,
@@ -438,6 +615,7 @@ async function aggregateBreakdowns(collection, match) {
     ),
     aggregateNamedBreakdown(collection, match, { $ifNull: ["$payload_version", "unknown"] }, "payload_version", 8),
     aggregateCompanyBreakdown(collection, match),
+    aggregateCompanyAmountBreakdown(collection, match),
   ]);
 
   return {
@@ -445,6 +623,7 @@ async function aggregateBreakdowns(collection, match) {
     paymentModes,
     payloadVersions,
     companies,
+    amountCompanies,
   };
 }
 
@@ -518,13 +697,16 @@ async function getIndividualDashboard(db, query = {}) {
   const collection = db.collection(collectionName);
   const match = buildMatch(filters);
 
-  const [summary, dataCoverage, timeSeries, breakdowns, recent] = await Promise.all([
+  const [summary, amountSummary, dataCoverage, rawTimeSeries, amountTimeSeries, breakdowns, recent] = await Promise.all([
     aggregateSummary(collection, match, filters.dateRange),
+    aggregateAmountSummary(collection, match),
     aggregateDataCoverage(collection),
     aggregateTimeSeries(collection, match),
+    aggregateAmountTimeSeries(collection, match),
     aggregateBreakdowns(collection, match),
     getRecentOrders(collection, match, filters),
   ]);
+  const timeSeries = mergeAmountTimeSeries(rawTimeSeries, amountTimeSeries);
 
   return {
     marketplace: {
@@ -534,7 +716,7 @@ async function getIndividualDashboard(db, query = {}) {
     },
     filters,
     dataCoverage,
-    summary: addSummaryDerivedFields(summary, timeSeries),
+    summary: addSummaryDerivedFields(mergeAmountSummary(summary, amountSummary), timeSeries),
     timeSeries,
     breakdowns,
     recent,
@@ -590,7 +772,13 @@ function groupTimeSeries(points, groupBy) {
     buckets.set(bucket, current);
   }
 
-  return Array.from(buckets.values()).sort((a, b) => a.bucket.localeCompare(b.bucket));
+  return Array.from(buckets.values())
+    .map((bucket) => ({
+      ...bucket,
+      totalAmount: round(bucket.totalAmount || 0, 2),
+      averageAmountPerOrder: bucket.amountOrders ? round(bucket.totalAmount / bucket.amountOrders, 2) : 0,
+    }))
+    .sort((a, b) => a.bucket.localeCompare(b.bucket));
 }
 
 async function getComparisonDashboard(db, query = {}) {
@@ -605,12 +793,15 @@ async function getComparisonDashboard(db, query = {}) {
       const collectionName = orderCollectionName(marketplaceKey);
       const collection = db.collection(collectionName);
       const match = buildMatch(filters);
-      const [summary, dailySeries] = await Promise.all([
+      const [summary, amountSummary, dailySeries, amountTimeSeries] = await Promise.all([
         aggregateSummary(collection, match, filters.dateRange),
+        aggregateAmountSummary(collection, match),
         aggregateTimeSeries(collection, match),
+        aggregateAmountTimeSeries(collection, match),
       ]);
-      const groupedSeries = groupTimeSeries(dailySeries, filters.groupBy);
-      const enrichedSummary = addSummaryDerivedFields(summary, dailySeries);
+      const mergedDailySeries = mergeAmountTimeSeries(dailySeries, amountTimeSeries);
+      const groupedSeries = groupTimeSeries(mergedDailySeries, filters.groupBy);
+      const enrichedSummary = addSummaryDerivedFields(mergeAmountSummary(summary, amountSummary), mergedDailySeries);
 
       return {
         key: marketplaceKey,
@@ -627,6 +818,7 @@ async function getComparisonDashboard(db, query = {}) {
   const totalCompanies = marketplaces.reduce((sum, item) => sum + item.summary.totalCompanies, 0);
   const totalAmount = marketplaces.reduce((sum, item) => sum + item.summary.totalAmount, 0);
   const amountRows = marketplaces.reduce((sum, item) => sum + item.summary.amountRows, 0);
+  const amountOrders = marketplaces.reduce((sum, item) => sum + item.summary.amountOrders, 0);
   const dayCount = Math.max(inclusiveDayCount(filters.dateRange.from, filters.dateRange.to), 1);
   const sorted = [...marketplaces].sort((a, b) => b.summary.uniqueOrders - a.summary.uniqueOrders);
 
@@ -638,7 +830,9 @@ async function getComparisonDashboard(db, query = {}) {
       totalCompanies,
       totalAmount: round(totalAmount, 2),
       amountRows,
+      amountOrders,
       amountCurrency: "INR",
+      averageAmountPerOrder: amountOrders ? round(totalAmount / amountOrders, 2) : 0,
       averageOrdersPerDay: round(totalUniqueOrders / dayCount),
       bestMarketplace: sorted[0] || null,
       lowestMarketplace: sorted[sorted.length - 1] || null,
@@ -649,7 +843,10 @@ async function getComparisonDashboard(db, query = {}) {
       uniqueOrders: item.summary.uniqueOrders,
       totalEvents: item.summary.totalEvents,
       totalAmount: item.summary.totalAmount,
+      amountOrders: item.summary.amountOrders,
+      averageAmountPerOrder: item.summary.averageAmountPerOrder,
       percentage: totalUniqueOrders ? round((item.summary.uniqueOrders / totalUniqueOrders) * 100) : 0,
+      amountPercentage: totalAmount ? round((item.summary.totalAmount / totalAmount) * 100) : 0,
     })),
     companySplit: marketplaces.map((item) => ({
       key: item.key,
@@ -657,6 +854,7 @@ async function getComparisonDashboard(db, query = {}) {
       activeCompanies: item.summary.totalCompanies,
       uniqueOrders: item.summary.uniqueOrders,
       totalAmount: item.summary.totalAmount,
+      amountOrders: item.summary.amountOrders,
     })),
     marketplaces,
   };
