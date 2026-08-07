@@ -6,7 +6,7 @@ const crypto = require("crypto");
 const fs = require("fs/promises");
 const path = require("path");
 
-const DEFAULT_MONGO_URI = "mongodb://192.168.97.2:27017";
+const DEFAULT_MONGO_URI = "mongodb://127.0.0.1:27017";
 const DEFAULT_DB_NAME = "v1_traffic";
 const DEFAULT_BATCH_SIZE = 1000;
 
@@ -351,7 +351,7 @@ function usage() {
     "  --file <path>          Add one file. Can be repeated.",
     "  --files <paths...>     Add many files until the next --option.",
     "  --files-json <json>    Add files from a JSON array string.",
-    "  --mongo-uri <uri>      Default: mongodb://192.168.97.2:27017",
+    "  --mongo-uri <uri>      Default: mongodb://127.0.0.1:27017",
     "  --db <name>            Default: v1_traffic",
     "  --marketplace <name>   Optional override. By default inferred from parent folder.",
     "  --data-type <name>     Optional override. By default inferred from file name.",

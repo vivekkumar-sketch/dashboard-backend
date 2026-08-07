@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const { MongoClient } = require("mongodb");
 
-const DEFAULT_SOURCE_URI = "mongodb://192.168.97.2:27017";
+const DEFAULT_SOURCE_URI = "mongodb://127.0.0.1:27017";
 const DEFAULT_DB_NAME = "v1_traffic";
 const DEFAULT_BATCH_SIZE = 1000;
 
@@ -139,7 +139,7 @@ function usage() {
     "  node scripts/dump-local-mongo-to-cloud.js --source-uri mongodb://127.0.0.1:27017 --target-uri mongodb+srv://...",
     "",
     "Options:",
-    "  --source-uri <uri>        Local Mongo URI. Default: LOCAL_MONGO_URI or mongodb://192.168.97.2:27017",
+    "  --source-uri <uri>        Local Mongo URI. Default: LOCAL_MONGO_URI or mongodb://127.0.0.1:27017",
     "  --source-db <name>        Local DB name. Default: LOCAL_MONGO_DB or MONGO_DB or v1_traffic",
     "  --target-uri <uri>        Cloud Mongo URI. Default: TARGET_MONGO_URI or MONGO_URI",
     "  --target-db <name>        Cloud DB name. Default: TARGET_MONGO_DB or MONGO_DB or v1_traffic",
@@ -155,7 +155,8 @@ function redactMongoUri(uri) {
   try {
     const parsed = new URL(uri);
     if (parsed.password) {
-      parsed.password = "<redacted>";
+      const username = parsed.username ? `${decodeURIComponent(parsed.username)}:<redacted>@` : "";
+      return `${parsed.protocol}//${username}${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`;
     }
     return parsed.toString();
   } catch (error) {

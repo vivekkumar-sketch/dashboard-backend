@@ -10,7 +10,8 @@ function redactMongoUri(uri) {
   try {
     const parsed = new URL(uri);
     if (parsed.password) {
-      parsed.password = "<redacted>";
+      const username = parsed.username ? `${decodeURIComponent(parsed.username)}:<redacted>@` : "";
+      return `${parsed.protocol}//${username}${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`;
     }
     return parsed.toString();
   } catch (error) {
